@@ -100,6 +100,7 @@ impl InsertWithoutNameRef {
     }
 
     pub fn decode<R: Buf>(buf: &mut R) -> Result<Option<Self>, ParseError> {
+        println!("decoded insert without name ref");
         let name = match prefix_string::decode(6, buf) {
             Ok(x) => x,
             Err(StringError::UnexpectedEnd) => return Ok(None),

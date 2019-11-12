@@ -195,6 +195,7 @@ impl<'a> DynamicTableEncoder<'a> {
     }
 
     pub(super) fn insert(&mut self, field: &HeaderField) -> Result<DynamicInsertionResult, Error> {
+        dbg!(self.table.blocked_count, self.table.blocked_max);
         if self.table.blocked_count >= self.table.blocked_max {
             return Ok(DynamicInsertionResult::NotInserted(
                 self.find_name(&field.name),
@@ -325,14 +326,14 @@ pub enum DynamicInsertionResult {
 pub struct DynamicTable {
     fields: VecDeque<HeaderField>,
     curr_mem_size: usize,
-    mem_limit: usize,
+    mem_limit: usize, // FIXME rename consistently with spec
     vas: VirtualAddressSpace,
     field_map: Option<HashMap<HeaderField, usize>>,
     name_map: Option<HashMap<Cow<'static, [u8]>, usize>>,
     track_map: Option<BTreeMap<usize, usize>>,
     track_blocks: Option<HashMap<u64, HashMap<usize, usize>>>,
     largest_known_received: usize,
-    blocked_max: usize,
+    blocked_max: usize, // TODO gater conf somewhere and make it clear
     blocked_count: usize,
     blocked_streams: Option<BTreeMap<usize, usize>>, // <required_ref, blocked_count>
 }
@@ -403,6 +404,7 @@ impl DynamicTable {
     }
 
     fn put_field(&mut self, field: HeaderField) -> Result<Option<usize>, Error> {
+        dbg!(self.mem_limit);
         if self.mem_limit == 0 {
             return Ok(None);
         }
@@ -422,6 +424,7 @@ impl DynamicTable {
     }
 
     fn evict(&mut self, to_evict: usize) -> Result<(), Error> {
+        println!("evicting {}", to_evict);
         for _ in 0..to_evict {
             let field = self.fields.pop_front().ok_or(Error::MaxTableSizeReached)?; //TODO better type
             self.curr_mem_size -= field.mem_size();
@@ -448,11 +451,13 @@ impl DynamicTable {
     }
 
     fn can_free(&mut self, required: usize) -> Result<Option<usize>, Error> {
-        if required > self.mem_limit {
+        dbg!(required + self.curr_mem_size, self.mem_limit, required + self.curr_mem_size > self.mem_limit);
+        if required + self.curr_mem_size > self.mem_limit {
             return Err(Error::MaxTableSizeReached);
         }
 
         if self.mem_limit - self.curr_mem_size >= required {
+            dbg!(self.mem_limit, self.curr_mem_size,  required);
             return Ok(Some(0));
         }
         let lower_bound = self.mem_limit - required;
@@ -461,6 +466,7 @@ impl DynamicTable {
         let mut evictable = 0;
 
         for (idx, to_evict) in self.fields.iter().enumerate() {
+            println!("the loop idx {}, to {}", idx, to_evict);
             if hypothetic_mem_size <= lower_bound {
                 break;
             }
@@ -568,8 +574,8 @@ impl DynamicTable {
         }
     }
 
-    pub fn update_largest_received(&mut self, index: usize) {
-        self.largest_known_received = std::cmp::max(index, self.largest_known_received);
+    pub fn update_largest_received(&mut self, increment: usize) {
+        self.largest_known_received += increment;
 
         if self.blocked_streams.is_none() || self.blocked_count == 0 {
             return;
@@ -1527,5 +1533,11 @@ mod tests {
                 absolute: 4
             })
         );
+    }
+
+    impl DynamicTable {
+        pub(crate) fn fields(&self) -> &VecDeque<HeaderField> {
+            &self.fields
+        }
     }
 }

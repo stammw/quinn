@@ -8,7 +8,7 @@ pub mod connection;
 pub mod frame;
 pub mod headers;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct StreamType(pub u64);
 
 macro_rules! stream_types {

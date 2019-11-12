@@ -97,7 +97,10 @@ impl VirtualAddressSpace {
     }
 
     pub fn relative(&self, index: RelativeIndex) -> Result<usize, Error> {
-        if self.delta == 0 || self.inserted - index <= self.dropped {
+        if self.inserted <= index {
+            panic!();
+        }
+        if self.inserted <= index || self.delta == 0 || self.inserted - index <= self.dropped {
             Err(Error::BadRelativeIndex(index))
         } else {
             Ok(self.inserted - self.dropped - index - 1)

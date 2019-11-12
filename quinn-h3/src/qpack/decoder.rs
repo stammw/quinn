@@ -37,7 +37,7 @@ pub enum Error {
     #[error(display = "invalid data prefix")]
     UnknownPrefix,
     #[error(display = "missing references from dynamic table to decode header block")]
-    MissingRefs,
+    MissingRefs(usize),
     #[error(display = "header prefix contains invalid base index: {:?}", _0)]
     BadBaseIndex(isize),
     #[error(display = "data is unexpectedly truncated")]
@@ -57,12 +57,14 @@ pub fn decode_header<T: Buf>(table: &DynamicTable, buf: &mut T) -> Result<Vec<He
     let (required_ref, base) =
         HeaderPrefix::decode(buf)?.get(table.total_inserted(), table.max_mem_size())?;
 
+    dbg!(required_ref, base, table.total_inserted());
+
     if required_ref > table.total_inserted() {
         // TODO here the header block cannot be decoded because it contains references to
         //      dynamic table entries that have not been received yet. It should be saved
         //      and then be decoded when the missing dynamic entries arrive on encoder
         //      stream.
-        return Err(Error::MissingRefs);
+        return Err(Error::MissingRefs(required_ref));
     }
 
     let decoder_table = table.decoder(base);
@@ -87,6 +89,7 @@ fn parse_header_field<R: Buf>(
         },
         HeaderBlockField::IndexedWithPostBase => {
             let index = IndexedWithPostBase::decode(buf)?.0;
+            println!("decode indexed with postbase");
             table.get_postbase(index)?.clone()
         }
         HeaderBlockField::LiteralWithNameRef => match LiteralWithNameRef::decode(buf)? {
@@ -115,10 +118,12 @@ pub fn on_encoder_recv<R: Buf, W: BufMut>(
     table: &mut DynamicTableInserter,
     read: &mut R,
     write: &mut W,
-) -> Result<(), Error> {
+) -> Result<usize, Error> {
     let inserted_on_start = table.total_inserted();
+    dbg!(inserted_on_start);
 
     while let Some(instruction) = parse_instruction(&table, read)? {
+        println!("instruction: {:?}, rest: {:?}", instruction, read.bytes());
         match instruction {
             Instruction::Insert(field) => table.put_field(field)?,
             Instruction::TableSizeUpdate(size) => {
@@ -131,7 +136,8 @@ pub fn on_encoder_recv<R: Buf, W: BufMut>(
         InsertCountIncrement(table.total_inserted() - inserted_on_start).encode(write);
     }
 
-    Ok(())
+    dbg!(table.total_inserted());
+    Ok(table.total_inserted())
 }
 
 fn parse_instruction<R: Buf>(
@@ -152,7 +158,10 @@ fn parse_instruction<R: Buf>(
         EncoderInstruction::InsertWithoutNameRef => InsertWithoutNameRef::decode(&mut buf)?
             .map(|x| Instruction::Insert(HeaderField::new(x.name, x.value))),
         EncoderInstruction::Duplicate => match Duplicate::decode(&mut buf)? {
-            Some(Duplicate(index)) => Some(Instruction::Insert(table.get_relative(index)?.clone())),
+            Some(Duplicate(index)) => {
+                println!("duplicate {}", index);
+                Some(Instruction::Insert(table.get_relative(index)?.clone()))
+            }
             None => None,
         },
         EncoderInstruction::InsertWithNameRef => match InsertWithNameRef::decode(&mut buf)? {
@@ -165,6 +174,8 @@ fn parse_instruction<R: Buf>(
             None => None,
         },
     };
+
+    dbg!(&instruction);
 
     if instruction.is_some() {
         let pos = buf.position();
@@ -355,7 +366,7 @@ mod tests {
         let mut enc = Cursor::new(&buf);
         let mut dec = vec![];
         let res = on_encoder_recv(&mut table.inserter(), &mut enc, &mut dec);
-        assert_eq!(res, Ok(()));
+        assert_matches!(res, Ok(_));
 
         let mut dec_cursor = Cursor::new(&dec);
         assert_eq!(
@@ -377,7 +388,7 @@ mod tests {
         let mut dec = vec![];
         let mut table = build_table_with_size(0);
         let res = on_encoder_recv(&mut table.inserter(), &mut enc, &mut dec);
-        assert_eq!(res, Ok(()));
+        assert_matches!(res, Ok(_));
 
         let actual_max_size = table.max_mem_size();
         assert_eq!(actual_max_size, 25);
@@ -443,7 +454,7 @@ mod tests {
         HeaderPrefix::new(8, 8, 10, TABLE_SIZE).encode(&mut buf);
 
         let mut read = Cursor::new(&buf);
-        assert_eq!(decode_header(&table, &mut read), Err(Error::MissingRefs));
+        assert_matches!(decode_header(&table, &mut read), Err(Error::MissingRefs(_)));
     }
 
     fn field(n: usize) -> HeaderField {

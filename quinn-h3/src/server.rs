@@ -6,7 +6,7 @@ use std::task::Context;
 use futures::{ready, Future, Poll, Stream};
 use http::{response, HeaderMap, Request, Response};
 use quinn::{EndpointBuilder, EndpointDriver, EndpointError, RecvStream, SendStream};
-use quinn_proto::StreamId;
+use quinn_proto::{Side, StreamId};
 
 use crate::{
     body::{Body, BodyWriter, RecvBody},
@@ -90,10 +90,16 @@ impl Future for Connecting {
             uni_streams,
             ..
         } = ready!(Pin::new(&mut self.connecting).poll(cx))?;
-        let conn_ref = ConnectionRef::new(connection, self.settings.clone())?;
+        let conn_ref = ConnectionRef::new(
+            connection,
+            self.settings.clone(),
+            uni_streams,
+            bi_streams,
+            Side::Server,
+        )?;
         Poll::Ready(Ok((
             driver,
-            ConnectionDriver::new_server(conn_ref.clone(), uni_streams, bi_streams),
+            ConnectionDriver(conn_ref.clone()),
             IncomingRequest(conn_ref),
         )))
     }
@@ -110,7 +116,7 @@ impl Stream for IncomingRequest {
             match conn.requests.pop_front() {
                 Some(s) => s,
                 None => {
-                    conn.requests_task = Some(cx.waker().clone());
+                    conn.requests_waker = Some(cx.waker().clone());
                     return Poll::Pending;
                 }
             }

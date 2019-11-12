@@ -87,9 +87,9 @@ fn blocked_header() {
     .unwrap();
 
     let mut block_cur = Cursor::new(&mut block_buf);
-    assert_eq!(
+    assert_matches!(
         decode_header(&dec_table, &mut block_cur),
-        Err(DecoderError::MissingRefs)
+        Err(DecoderError::MissingRefs(_))
     );
 }
 

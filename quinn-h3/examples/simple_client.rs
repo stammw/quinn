@@ -48,7 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_certificate_authority(certs.1)
         .expect("failed to ad cert");
     endpoint.default_client_config(client_config.build());
-
     let (endpoint_driver, endpoint, _) = endpoint.bind(&"[::]:0".parse().unwrap())?;
     tokio::spawn(async move {
         if let Err(e) = endpoint_driver.await {
@@ -82,12 +81,6 @@ async fn request(client: Client, remote: &SocketAddr) -> Result<(), Error> {
             .uri("/hello")
             .body(())
             .expect("failed to build request");
-
-        let mut trailer = HeaderMap::with_capacity(2);
-        trailer.append(
-            "request",
-            HeaderValue::from_str("trailer").expect("trailer value"),
-        );
 
         let (response, body) = conn
             .request(request)

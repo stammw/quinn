@@ -22,6 +22,9 @@ pub mod server;
 mod frame;
 mod streams;
 
+#[cfg(test)]
+mod tests;
+
 use err_derive::Error;
 use quinn::VarInt;
 

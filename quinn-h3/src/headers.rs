@@ -31,7 +31,7 @@ impl DecodeHeaders {
 impl Future for DecodeHeaders {
     type Output = Result<Header, Error>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         match self.frame {
             None => Poll::Ready(Err(crate::Error::Internal("frame none"))),
             Some(ref frame) => {
@@ -40,8 +40,7 @@ impl Future for DecodeHeaders {
                     .h3
                     .lock()
                     .unwrap()
-                    .inner
-                    .decode_header(self.stream_id, frame);
+                    .decode_header(cx, self.stream_id, frame);
 
                 match result {
                     Ok(None) => Poll::Pending,
@@ -65,8 +64,10 @@ impl SendHeaders {
         stream_id: StreamId,
     ) -> Result<Self, Error> {
         let frame = {
-            let conn = &mut conn.h3.lock().unwrap().inner;
-            conn.encode_header(stream_id, header)?
+            let conn = &mut conn.h3.lock().unwrap();
+            let (required_ref, header) = conn.inner.encode_header(stream_id, header)?; // TODO check if the task has been encoded
+            conn.on_encoded(required_ref);
+            header
         };
 
         Ok(Self(WriteFrame::new(send, frame)))

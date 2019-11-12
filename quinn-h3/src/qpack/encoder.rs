@@ -49,11 +49,14 @@ where
     let mut required_ref = 0;
     let mut block_buf = Vec::new();
 
+
     for field in fields {
         if let Some(reference) = encode_field(table, &mut block_buf, encoder, field.as_ref())? {
             required_ref = cmp::max(required_ref, reference);
         }
     }
+
+    dbg!(required_ref);
 
     HeaderPrefix::new(
         required_ref,
@@ -81,11 +84,14 @@ fn encode_field<W: BufMut>(
     }
 
     if let DynamicLookupResult::Relative { index, absolute } = table.find(field) {
+        println!("relative {}", index);
         Indexed::Dynamic(index).encode(block);
         return Ok(Some(absolute));
     }
 
-    let reference = match table.insert(field)? {
+    let res = table.insert(field)?;
+    dbg!(&res);
+    let reference = match res {
         DynamicInsertionResult::Duplicated {
             relative,
             postbase,
@@ -96,6 +102,7 @@ fn encode_field<W: BufMut>(
             Some(absolute)
         }
         DynamicInsertionResult::Inserted { postbase, absolute } => {
+            println!("inserted postbase: {}, absolute: {}", postbase, absolute);
             InsertWithoutNameRef::new(field.name.clone(), field.value.clone()).encode(encoder)?;
             IndexedWithPostBase(postbase).encode(block);
             Some(absolute)
@@ -142,6 +149,7 @@ fn encode_field<W: BufMut>(
 
 pub fn on_decoder_recv<R: Buf>(table: &mut DynamicTable, read: &mut R) -> Result<(), Error> {
     while let Some(instruction) = parse_instruction(read)? {
+        println!("decoder recieved instruction {:?}", instruction);
         match instruction {
             Instruction::Untrack(stream_id) => table.untrack_block(stream_id)?,
             Instruction::ReceivedRef(idx) => table.update_largest_received(idx),
@@ -179,7 +187,7 @@ fn parse_instruction<R: Buf>(read: &mut R) -> Result<Option<Instruction>, Error>
 }
 
 #[derive(Debug, PartialEq)]
-enum Instruction {
+enum Instruction { // TODO it's not really an instruction, but an ? action ?
     ReceivedRef(usize),
     Untrack(u64),
 }

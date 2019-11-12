@@ -1,4 +1,4 @@
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use quinn_proto::StreamId;
 use std::convert::TryFrom;
 
@@ -40,7 +40,11 @@ impl Connection {
         })
     }
 
-    pub fn encode_header(&mut self, stream_id: StreamId, headers: Header) -> Result<HeadersFrame> {
+    pub fn encode_header(
+        &mut self,
+        stream_id: StreamId,
+        headers: Header,
+    ) -> Result<(usize, HeadersFrame)> {
         if let Some(ref s) = self.remote_settings {
             if headers.len() as u64 > s.max_header_list_size {
                 return Err(Error::HeaderListTooLarge);
@@ -48,32 +52,38 @@ impl Connection {
         }
 
         let mut block = BytesMut::with_capacity(512);
-        qpack::encode(
+        let required_ref = qpack::encode(
             &mut self.encoder_table.encoder(stream_id.0),
             &mut block,
             &mut self.pending_encoder,
             headers.into_iter().map(HeaderField::from),
         )?;
 
-        Ok(HeadersFrame {
-            encoded: block.into(),
-        })
+        Ok((
+            required_ref,
+            HeadersFrame {
+                encoded: block.into(),
+            },
+        ))
     }
 
     pub fn decode_header(
         &mut self,
         stream_id: StreamId,
         header: &HeadersFrame,
-    ) -> Result<Option<Header>> {
+    ) -> Result<DecodeResult> {
         match qpack::decode_header(
             &self.decoder_table,
             &mut std::io::Cursor::new(&header.encoded),
         ) {
-            Err(DecoderError::MissingRefs) => Ok(None),
+            Err(DecoderError::MissingRefs(r)) => {
+                println!("missing ref");
+                Ok(DecodeResult::MissingRefs(r))
+            }
             Err(e) => Err(Error::DecodeError { reason: e }),
             Ok(decoded) => {
                 qpack::ack_header(stream_id.0, &mut self.pending_decoder);
-                Ok(Some(Header::try_from(decoded)?))
+                Ok(DecodeResult::Decoded(Header::try_from(decoded)?))
             }
         }
     }
@@ -83,6 +93,11 @@ impl Connection {
     }
 
     pub fn set_remote_settings(&mut self, settings: Settings) {
+        self.encoder_table
+            .inserter()
+            .set_max_mem_size(settings.qpack_max_table_capacity as usize);
+        self.encoder_table
+            .set_max_blocked(settings.qpack_blocked_streams as usize);
         self.remote_settings = Some(settings);
     }
 
@@ -90,7 +105,39 @@ impl Connection {
         if self.pending_control.is_empty() {
             return None;
         }
+        println!("control yeild {:?}", self.pending_control);
         Some(self.pending_control.take().freeze())
+    }
+
+    pub fn pending_encoder(&mut self) -> Option<Bytes> {
+        if self.pending_encoder.is_empty() {
+            return None;
+        }
+        println!("encoder yeild {:?}", self.pending_control);
+        Some(self.pending_encoder.take().freeze())
+    }
+
+    pub fn pending_decoder(&mut self) -> Option<Bytes> {
+        if self.pending_decoder.is_empty() {
+            return None;
+        }
+        println!("encoder yeild {:?}", self.pending_control);
+        Some(self.pending_decoder.take().freeze())
+    }
+
+    pub fn on_recv_encoder<R: Buf>(&mut self, read: &mut R) -> Result<usize> {
+        Ok(qpack::on_encoder_recv(
+            &mut self.decoder_table.inserter(),
+            read,
+            &mut self.pending_decoder,
+        )?)
+    }
+
+    pub fn on_recv_decoder<R: Buf>(&mut self, read: &mut R) -> Result<()> {
+        Ok(qpack::on_decoder_recv(
+            &mut self.encoder_table,
+            read,
+        )?)
     }
 }
 
@@ -110,6 +157,12 @@ impl Default for Connection {
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
+pub enum DecodeResult {
+    Decoded(Header),
+    MissingRefs(usize),
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     HeaderListTooLarge,
@@ -125,6 +178,12 @@ pub enum Error {
 impl From<EncoderError> for Error {
     fn from(err: EncoderError) -> Error {
         Error::EncodeError { reason: err }
+    }
+}
+
+impl From<DecoderError> for Error {
+    fn from(err: DecoderError) -> Error {
+        Error::DecodeError { reason: err }
     }
 }
 
@@ -156,6 +215,12 @@ mod tests {
         uri::Uri,
         Method,
     };
+
+    impl Connection {
+        pub(crate) fn encoder_table(&self) -> &DynamicTable {
+            &self.encoder_table
+        }
+    }
 
     #[test]
     fn encode_no_dynamic() {
@@ -212,14 +277,14 @@ mod tests {
         let header = Header::request(Method::GET, Uri::default(), header_map);
 
         let mut client = Connection::default();
-        let encoded = client
+        let (_, encoded) = client
             .encode_header(StreamId(1), header)
             .expect("encoding failed");
 
         let mut server = Connection::default();
         assert_matches!(
             server.decode_header(StreamId(1), &encoded),
-            Ok(Some(_header))
+            Ok(DecodeResult::Decoded(_header))
         );
         assert!(!server.pending_decoder.is_empty());
     }
@@ -241,7 +306,7 @@ mod tests {
             .set_max_blocked(12usize)
             .expect("set max");
 
-        let encoded = client
+        let (_, encoded) = client
             .encode_header(StreamId(1), header)
             .expect("encoding failed");
         assert!(!client.pending_encoder.is_empty());
@@ -253,7 +318,10 @@ mod tests {
         })
         .expect("create server");
 
-        assert_eq!(server.decode_header(StreamId(1), &encoded), Ok(None));
+        assert_matches!(
+            server.decode_header(StreamId(1), &encoded),
+            Ok(DecodeResult::MissingRefs(_))
+        );
         assert!(server.pending_decoder.is_empty());
     }
 }

@@ -2,11 +2,12 @@ use std::mem;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::Context;
+use std::fmt;
 
 use futures::{ready, stream::Stream, Future, Poll};
 use http::{request, HeaderMap, Request, Response};
 use quinn::{Endpoint, OpenBi};
-use quinn_proto::StreamId;
+use quinn_proto::{Side, StreamId};
 
 use crate::{
     body::{Body, BodyWriter, RecvBody},
@@ -94,12 +95,19 @@ impl Future for Connecting {
             driver,
             connection,
             uni_streams,
+            bi_streams,
             ..
         } = ready!(Pin::new(&mut self.connecting).poll(cx))?;
-        let conn_ref = ConnectionRef::new(connection, self.settings.clone())?;
+        let conn_ref = ConnectionRef::new(
+            connection,
+            self.settings.clone(),
+            uni_streams,
+            bi_streams,
+            Side::Client,
+        )?;
         Poll::Ready(Ok((
             driver,
-            ConnectionDriver::new_client(conn_ref.clone(), uni_streams),
+            ConnectionDriver(conn_ref.clone()),
             Connection(conn_ref),
         )))
     }
@@ -223,11 +231,27 @@ impl SendRequest {
     }
 }
 
+impl fmt::Display for SendRequestState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SendRequestState::Opening(_) => write!(f, "SendRequestState::Opening")?,
+            SendRequestState::Sending(_) => write!(f, "SendRequestState::Sending")?,
+            SendRequestState::SendingBody(_) => write!(f, "SendRequestState::SendingBody")?,
+            SendRequestState::SendingTrailers(_) => write!(f, "SendRequestState::SendingTrailers")?,
+            SendRequestState::Receiving(_) => write!(f, "SendRequestState::Receiving")?,
+            SendRequestState::Decoding(_) => write!(f, "SendRequestState::Decoding")?,
+            Finished => write!(f, "SendRequestState::Finished")?,
+        }
+        Ok(())
+    }
+}
+
 impl Future for SendRequest {
     type Output = Result<Response<RecvBody>, Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         loop {
+            println!("{}", self.state);
             match self.state {
                 SendRequestState::Opening(ref mut o) => {
                     let (send, recv) = ready!(Pin::new(o).poll(cx))?;
@@ -320,6 +344,18 @@ enum RecvResponseState {
     Finished,
 }
 
+impl fmt::Display for RecvResponseState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RecvResponseState::Receiving(_) => write!(f, "RecvResponseState::Recieving")?,
+            RecvResponseState::Decoding(_) => write!(f, "RecvResponseState::Decoding")?,
+            RecvResponseState::Finished => write!(f, "RecvResponseState::Finished")?,
+        }
+        Ok(())
+    }
+}
+
+
 impl RecvResponse {
     pub(crate) fn new(recv: FrameStream, conn: ConnectionRef, stream_id: StreamId) -> Self {
         Self {
@@ -336,6 +372,7 @@ impl Future for RecvResponse {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         loop {
+            println!("recv response {}", self.state);
             match self.state {
                 RecvResponseState::Finished => {
                     return Poll::Ready(Err(crate::Error::Internal(
@@ -399,4 +436,15 @@ fn build_response(
         .unwrap();
     *response.headers_mut() = headers;
     Ok(response)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    impl Connection {
+        pub(crate) fn inner(&self) -> &ConnectionRef {
+            &self.0
+        }
+    }
 }
