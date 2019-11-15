@@ -23,7 +23,7 @@ use crate::{
     Error, ErrorCode, Settings,
 };
 
-pub struct ConnectionDriver(pub(super) ConnectionRef);
+pub struct ConnectionDriver(pub(crate) ConnectionRef);
 
 impl Future for ConnectionDriver {
     type Output = Result<(), Error>;
@@ -305,8 +305,9 @@ impl ConnectionInner {
 
                     let blocked = self.blocked_streams.split_off(&max_recieved_ref);
                     let mut unblocked = mem::replace(&mut self.blocked_streams, blocked);
-                    for stream in unblocked.values_mut() {
-                        stream.take().unwrap().wake();
+                    for (stream, waker) in unblocked.iter_mut() {
+                        println!("waking {}", stream);
+                        waker.take().unwrap().wake();
                     }
                 }
                 Poll::Ready(_) => {
@@ -400,3 +401,4 @@ impl ConnectionInner {
         self.error = Some((code, msg.into()));
     }
 }
+

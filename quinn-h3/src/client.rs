@@ -1,8 +1,8 @@
+use std::fmt;
 use std::mem;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::Context;
-use std::fmt;
 
 use futures::{ready, stream::Stream, Future, Poll};
 use http::{request, HeaderMap, Request, Response};
@@ -354,7 +354,6 @@ impl fmt::Display for RecvResponseState {
         Ok(())
     }
 }
-
 
 impl RecvResponse {
     pub(crate) fn new(recv: FrameStream, conn: ConnectionRef, stream_id: StreamId) -> Self {

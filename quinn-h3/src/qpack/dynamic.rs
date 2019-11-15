@@ -451,13 +451,17 @@ impl DynamicTable {
     }
 
     fn can_free(&mut self, required: usize) -> Result<Option<usize>, Error> {
-        dbg!(required + self.curr_mem_size, self.mem_limit, required + self.curr_mem_size > self.mem_limit);
+        dbg!(
+            required + self.curr_mem_size,
+            self.mem_limit,
+            required + self.curr_mem_size > self.mem_limit
+        );
         if required + self.curr_mem_size > self.mem_limit {
             return Err(Error::MaxTableSizeReached);
         }
 
         if self.mem_limit - self.curr_mem_size >= required {
-            dbg!(self.mem_limit, self.curr_mem_size,  required);
+            dbg!(self.mem_limit, self.curr_mem_size, required);
             return Ok(Some(0));
         }
         let lower_bound = self.mem_limit - required;
@@ -1538,6 +1542,10 @@ mod tests {
     impl DynamicTable {
         pub(crate) fn fields(&self) -> &VecDeque<HeaderField> {
             &self.fields
+        }
+
+        pub fn track_map(&self) -> Option<&BTreeMap<usize, usize>> {
+            self.track_map.as_ref()
         }
     }
 }

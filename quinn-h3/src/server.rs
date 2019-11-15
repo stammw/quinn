@@ -1,3 +1,4 @@
+use std::fmt;
 use std::mem;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -283,6 +284,20 @@ enum SendResponseState {
     Finished,
 }
 
+impl fmt::Display for SendResponseState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SendResponseState::SendingHeader(_) => write!(f, "SendResponseState::SendingHeader")?,
+            SendResponseState::SendingBody(_) => write!(f, "SendResponseState::SendingBody")?,
+            SendResponseState::SendingTrailers(_) => {
+                write!(f, "SendResponseState::SendingTrailers")?
+            }
+            Finished => write!(f, "SendResponseState::Finished")?,
+        }
+        Ok(())
+    }
+}
+
 pub struct SendResponse {
     state: SendResponseState,
     body: Option<Body>,
@@ -325,6 +340,7 @@ impl Future for SendResponse {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         loop {
+            println!("{}", self.state);
             match self.state {
                 SendResponseState::Finished => panic!("polled after finished"),
                 SendResponseState::SendingTrailers(ref mut write) => {
@@ -334,6 +350,7 @@ impl Future for SendResponse {
                 }
                 SendResponseState::SendingHeader(ref mut write) => {
                     let send = ready!(Pin::new(write).poll(cx))?;
+                    println!("SendResponse: header sent");
                     match self.body.take() {
                         Some(Body::Buf(payload)) => {
                             self.state = SendResponseState::SendingBody(WriteFrame::new(
@@ -343,6 +360,7 @@ impl Future for SendResponse {
                         }
                         _ => {
                             self.state = SendResponseState::Finished;
+                            println!("{}", self.state);
                             return Poll::Ready(Ok(()));
                         }
                     };

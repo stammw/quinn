@@ -227,8 +227,10 @@ impl Send {
         }
         let budget = self.max_data - self.offset;
         if budget == 0 {
+            println!("out of budget: max_data: {}, offset: {}", self.max_data, self.offset);
             Err(WriteError::Blocked)
         } else {
+            println!("still some budget: max_data: {}, offset: {}", self.max_data, self.offset);
             Ok(budget)
         }
     }

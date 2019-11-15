@@ -49,7 +49,6 @@ where
     let mut required_ref = 0;
     let mut block_buf = Vec::new();
 
-
     for field in fields {
         if let Some(reference) = encode_field(table, &mut block_buf, encoder, field.as_ref())? {
             required_ref = cmp::max(required_ref, reference);
@@ -187,7 +186,8 @@ fn parse_instruction<R: Buf>(read: &mut R) -> Result<Option<Instruction>, Error>
 }
 
 #[derive(Debug, PartialEq)]
-enum Instruction { // TODO it's not really an instruction, but an ? action ?
+enum Instruction {
+    // TODO it's not really an instruction, but an ? action ?
     ReceivedRef(usize),
     Untrack(u64),
 }

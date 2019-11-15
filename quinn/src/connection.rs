@@ -693,6 +693,7 @@ impl ConnectionInner {
                     self.terminate(reason);
                 }
                 StreamWritable { stream } => {
+                    println!("stream writable {}", stream);
                     if let Some(writer) = self.blocked_writers.remove(&stream) {
                         writer.wake();
                     }
@@ -713,6 +714,7 @@ impl ConnectionInner {
                     }
                 }
                 StreamReadable { stream } => {
+                    println!("stream readable {}", stream);
                     if let Some(reader) = self.blocked_readers.remove(&stream) {
                         reader.wake();
                     }

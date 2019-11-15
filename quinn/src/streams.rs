@@ -58,6 +58,7 @@ impl SendStream {
         let n = match conn.inner.write(self.stream, buf) {
             Ok(n) => n,
             Err(Blocked) => {
+                println!("Send blocked: {:?}", conn.inner.side());
                 if let Some(ref x) = conn.error {
                     return Poll::Ready(Err(WriteError::ConnectionClosed(x.clone())));
                 }
@@ -436,6 +437,7 @@ impl tokio_io::AsyncRead for RecvStream {
 impl Drop for RecvStream {
     fn drop(&mut self) {
         let mut conn = self.conn.lock().unwrap();
+        println!("Recv dropped: {:?}", conn.inner.side());
         if conn.error.is_some() || (self.is_0rtt && conn.check_0rtt().is_err()) {
             return;
         }

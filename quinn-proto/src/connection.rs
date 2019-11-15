@@ -2933,9 +2933,17 @@ where
                     "write on {stream} blocked by congestion",
                     stream = stream
                 );
+                println!(
+                    "write on {stream} blocked by congestion",
+                    stream = stream
+                );
             } else {
                 trace!(
                     self.log,
+                    "write on {stream} blocked by connection-level flow control",
+                    stream = stream
+                );
+                println!(
                     "write on {stream} blocked by connection-level flow control",
                     stream = stream
                 );
@@ -2959,6 +2967,10 @@ where
             Err(e @ WriteError::Blocked) => {
                 trace!(
                     self.log,
+                    "write on {stream} blocked by flow control",
+                    stream = stream
+                );
+                println!(
                     "write on {stream} blocked by flow control",
                     stream = stream
                 );

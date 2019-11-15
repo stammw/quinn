@@ -41,6 +41,7 @@ impl Decoder for FrameDecoder {
     type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        println!("expecting {:?}", self.expected);
         if src.len() == 0 {
             return Ok(None);
         }
